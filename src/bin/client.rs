@@ -1,10 +1,56 @@
 use quinn::{ClientConfig, Endpoint};
-use std::error::Error;
+use rustls::RootCertStore;
+use rustls::client::WebPkiServerVerifier;
+use rustls_pemfile::certs;
+use std::{error::Error, fs::File, io::BufReader, net::SocketAddr, sync::Arc};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+fn load_root_certs(path: &str) -> Result<RootCertStore, Box<dyn Error>> {
+    let file = File::open(path)?;
+    let mut reader = BufReader::new(file);
+    let mut roots = RootCertStore::empty();
+    for cert in certs(&mut reader) {
+        roots.add(cert)?;
+    }
+    Ok(roots)
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     tracing_subscriber::fmt::init();
     println!("Starting QUIC client on UDP port 5000");
+
+    //Load and trust the server cert (just for self-signed/testing)
+    //Use quinn helper to build a Client Config from a root store
+    let roots = load_root_certs("cert.pem")?;
+    let verifier = WebPkiServerVerifier::builder(Arc::new(roots)).build()?; //Build a server cert verifier
+
+    let client_crypto =
+        quinn::crypto::rustls::ClientConfig::builder_with_provider(Arc::new(verifier))
+            .with_no_client_auth();
+
+    let mut client_config = ClientConfig::new(Arc::new(client_crypto));
+
+    //Here we cretaing endpoint and set default config
+    let mut endpoint = Endpoint::client("[::]:0".parse()?)?;
+    endpoint.set_default_client_config(client_config);
+
+    //Here we connect to server
+    //When we put this to server, we need to change the IP
+    let server_addr: SocketAddr = "127.0.0.1:5000".parse().unwrap();
+    let quinn_conn = endpoint.connect(server_addr, "localhost")?.await?;
+    println!("Connected to {}", quinn_conn.remote_address());
+
+    //Agfter that we open the bidirectional stream
+    let (mut send_stream, mut recv_stream) = quinn_conn.connection.open_bi().await?;
+    let message = b"hello tunnel, hello server";
+    send_stream.write_all(message).await?;
+    send_stream.finish().await?;
+
+    //Afrer sending, now we read frmo server (echo back)
+    let mut buf = vec![0; 1024];
+    let n = recv_stream.read(&mut buf).await?.unwrap();
+    println!("Received: {:?}", &buf[..n]);
+
     Ok(())
 }
