@@ -1,16 +1,17 @@
+//use quinn::crypto::rustls::QuicClientConfig;
 use quinn::{ClientConfig, Endpoint};
 use rustls::RootCertStore;
-use rustls::client::WebPkiServerVerifier;
+//use rustls::client::WebPkiServerVerifier;
 use rustls_pemfile::certs;
 use std::{error::Error, fs::File, io::BufReader, net::SocketAddr, sync::Arc};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+//use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 fn load_root_certs(path: &str) -> Result<RootCertStore, Box<dyn Error>> {
     let file = File::open(path)?;
     let mut reader = BufReader::new(file);
     let mut roots = RootCertStore::empty();
     for cert in certs(&mut reader) {
-        roots.add(cert)?;
+        roots.add(cert?)?;
     }
     Ok(roots)
 }
@@ -23,13 +24,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     //Load and trust the server cert (just for self-signed/testing)
     //Use quinn helper to build a Client Config from a root store
     let roots = load_root_certs("cert.pem")?;
-    let verifier = WebPkiServerVerifier::builder(Arc::new(roots)).build()?; //Build a server cert verifier
+    //let verifier = WebPkiServerVerifier::builder(Arc::new(roots)).build()?; //Build a server cert verifier
 
-    let client_crypto =
-        quinn::crypto::rustls::ClientConfig::builder_with_provider(Arc::new(verifier))
-            .with_no_client_auth();
-
-    let mut client_config = ClientConfig::new(Arc::new(client_crypto));
+    let client_config = ClientConfig::with_root_certificates(Arc::new(roots))?;
 
     //Here we cretaing endpoint and set default config
     let mut endpoint = Endpoint::client("[::]:0".parse()?)?;
@@ -42,10 +39,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     println!("Connected to {}", quinn_conn.remote_address());
 
     //Agfter that we open the bidirectional stream
-    let (mut send_stream, mut recv_stream) = quinn_conn.connection.open_bi().await?;
+    let (mut send_stream, mut recv_stream) = quinn_conn.open_bi().await?;
     let message = b"hello tunnel, hello server";
     send_stream.write_all(message).await?;
-    send_stream.finish().await?;
+    send_stream.finish()?;
 
     //Afrer sending, now we read frmo server (echo back)
     let mut buf = vec![0; 1024];
