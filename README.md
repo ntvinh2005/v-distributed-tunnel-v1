@@ -120,4 +120,4 @@ Pull requests and improvements are welcome.
 
 ## License
 
-MIT 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
