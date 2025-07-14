@@ -9,10 +9,14 @@ pub async fn list_nodes(pool: &PgPool) -> Result<(), sqlx::Error> {
     println!("{:<20} | {:<24} | {}", "Node ID", "Created At", "Active");
     println!("{:-<65}", "");
     for row in rows {
+        let created_at_str = row
+            .created_at
+            .map(|dt| dt.to_string())
+            .unwrap_or_else(|| "N/A".to_string());
         println!(
             "{:<20} | {:?} | {}",
             row.node_id,
-            row.created_at,
+            created_at_str,
             row.is_active.unwrap_or(false)
         );
     }
