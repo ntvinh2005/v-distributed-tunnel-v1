@@ -43,7 +43,7 @@ async fn main() -> anyhow::Result<()> {
             "help" => admin::print_help(),
             "list" => admin::list::list_nodes(&pool).await?,
             "add" => admin::add::add_node(&pool).await?,
-            "edit" => admin::edit::edit_node(&pool).await?,
+            "edit-password" => admin::edit::edit_password(&pool).await?,
             "delete" => admin::delete::delete_node(&pool).await?,
             //view <node id>
             cmd if cmd.starts_with("view ") => {
