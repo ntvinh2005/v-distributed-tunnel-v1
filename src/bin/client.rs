@@ -1,11 +1,10 @@
-//use quinn::crypto::rustls::QuicClientConfig;
 use quinn::{ClientConfig, Endpoint};
 use rustls::RootCertStore;
-//use rustls::client::WebPkiServerVerifier;
 use rustls_pemfile::certs;
 use std::{error::Error, fs::File, io::BufReader, net::SocketAddr, sync::Arc};
-//use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+//Read a self-signed certificate of server and trust it
+//The client will only connect if the server's certificate is matched.
 fn load_root_certs(path: &str) -> Result<RootCertStore, Box<dyn Error>> {
     let file = File::open(path)?;
     let mut reader = BufReader::new(file);
@@ -26,6 +25,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let roots = load_root_certs("cert.pem")?;
     //let verifier = WebPkiServerVerifier::builder(Arc::new(roots)).build()?; //Build a server cert verifier
 
+    //Create a config that trust server's certificate
     let client_config = ClientConfig::with_root_certificates(Arc::new(roots))?;
 
     //Here we cretaing endpoint and set default config
@@ -35,7 +35,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     //Here we connect to server
     //When we put this to server, we need to change the IP
     let server_addr: SocketAddr = "127.0.0.1:5000".parse().unwrap();
-    let quinn_conn = endpoint.connect(server_addr, "localhost")?.await?;
+    let quinn_conn = endpoint.connect(server_addr, "localhost")?.await?; //Connect to server IP and using name localhost and server's self-signed cert.
     println!("Connected to {}", quinn_conn.remote_address());
 
     //Agfter that we open the bidirectional stream

@@ -42,10 +42,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let certs = load_certs("cert.pem")?;
     let key = load_key("key.pem")?;
+
+    //The key is used intentional by server to prove to client that server is the one who control the cert
+    //When a client connect, server only present its cert as part of the TLS handshake.
     let mut server_config = ServerConfig::with_single_cert(certs, key)?;
     Arc::get_mut(&mut server_config.transport)
         .unwrap()
-        .max_concurrent_bidi_streams(100u32.into());
+        .max_concurrent_bidi_streams(100u32.into()); //TODO: Change the number of concurrent connections later. This 100 just for test
 
     let address: SocketAddr = "0.0.0.0:5000".parse()?;
     let endpoint = Endpoint::server(server_config, address)?;
