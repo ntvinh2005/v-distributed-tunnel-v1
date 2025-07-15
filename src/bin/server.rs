@@ -103,12 +103,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
                             continue;
                         }
 
-                        let node_id = parts[1];
-                        let password = parts[2];
+                        let node_id = parts[1].trim();
+                        let password = parts[2].trim();
 
                         let is_authorized =
                             auth::login::verify_node(&pool, node_id, password).await;
-                        if is_authorized {
+                        if !is_authorized {
                             send_stream
                                 .write(b"Unauthorized: Invalid node id or password\n")
                                 .await
@@ -117,6 +117,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         } else {
                             send_stream.write(b"Authorized: Success\n").await.unwrap();
                             let assigned_port = port_pool.assign_random_port(node_id);
+
                             if assigned_port.is_none() {
                                 send_stream
                                     .write(b"Service unavailable: No port available\n")
@@ -124,13 +125,36 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                     .unwrap();
                                 continue;
                             } else {
+                                println!(
+                                    "Assigned port {} to node '{}'",
+                                    assigned_port.unwrap(),
+                                    node_id
+                                );
                                 send_stream
                                     .write(
-                                        format!("Port assigned: {}\n", assigned_port.unwrap())
-                                            .as_bytes(),
+                                        format!("ASSIGNED {}\n", assigned_port.unwrap()).as_bytes(), //Send back protocal message ASSIGNED <port>
                                     )
                                     .await
                                     .unwrap();
+                                println!(
+                                    "Sent port {} to node '{}'",
+                                    assigned_port.unwrap(),
+                                    node_id,
+                                );
+                                //Create an instance of port guard to release the port after the client is disconnected or something go wrong.
+                                let _port_guard = pool::port_pool::PortGuard {
+                                    port_pool: &port_pool,
+                                    port: assigned_port.unwrap(),
+                                    node_id: node_id.to_string(),
+                                };
+
+                                //This loop is used for forwarding data
+                                //Once this loop is close (the task of forwarding have done), the guard go out of scope => release the port
+                                // loop {
+                                // Read from QUIC stream, write to TCP socket
+                                // Read from TCP socket, write to QUIC stream
+                                // Break on error or disconnect
+                                // }
                             }
                         }
                     }

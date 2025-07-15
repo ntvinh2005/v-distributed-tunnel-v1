@@ -51,23 +51,57 @@ async fn main() -> Result<(), Box<dyn Error>> {
     io::stdin().read_line(&mut node_id)?;
 
     print!("Enter password: ");
-    std::io::Write::flush(&mut std::io::stdout()).unwrap();
-    let password = read_password().unwrap();
+    io::stdout().flush().unwrap();
+    let mut password = String::new();
+    io::stdin().read_line(&mut password)?;
+
+    // print!("Enter password: ");
+    // std::io::Write::flush(&mut std::io::stdout()).unwrap();
+    // let password = read_password().unwrap();
+
+    node_id = node_id.trim().to_string();
+    password = password.trim().to_string();
 
     let auth_message = format!("AUTH {} {}\n", node_id, password);
     send_stream.write_all(auth_message.as_bytes()).await?; //We can only send bytes in the stream
     send_stream.finish()?;
 
+    println!("Message sent: {}", auth_message);
+
     //Afrer sending, now we read frmo server (echo back)
     let mut buf = vec![0; 1024];
     let n = recv_stream.read(&mut buf).await?.unwrap();
     let response = String::from_utf8_lossy(&buf[..n]); //Convert response in byte into string
+    println!("Response: {}", response);
     if response.contains("Success") {
         println!("Authentication successful!");
+        let mut buf = vec![0; 1024];
+        match recv_stream.read(&mut buf).await {
+            Ok(n) => {
+                let response = String::from_utf8_lossy(&buf[..n.unwrap()]);
+                if response.starts_with("ASSIGNED") {
+                    println!("Assigned port: {}", response[8..].trim()); //Remove the first 8 characters fromt the string
+
+                    //I'm kinda bad at Rust so need to write a plan before implement.
+                    // Pseudocode:
+                    // loop {
+                    //     read from local socket
+                    //     write to send_stream
+                    //     read from recv_stream
+                    //     write to local socket
+                    // }
+                }
+            }
+            Err(e) => {
+                // Read failed, handle error
+                println!("Read failed: {}", e);
+                return Err("Read failed".into());
+            }
+        }
     } else {
         println!("Authentication failed!");
         println!("Response: {}", response);
+        return Ok(());
     }
-
     Ok(())
 }
