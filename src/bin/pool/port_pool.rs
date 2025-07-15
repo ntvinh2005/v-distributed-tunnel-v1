@@ -59,6 +59,11 @@ impl PortPool {
             port_data.assigned = true;
             port_data.assign_to = Some(node_id.to_string());
             port_data.assign_at = Some(OffsetDateTime::now_utc());
+            let _port_guard = PortGuard {
+                port_pool: &self,
+                port: random_port,
+                node_id: node_id.to_string(),
+            };
             Some(random_port)
         } else {
             None
@@ -66,10 +71,26 @@ impl PortPool {
     }
 
     //Release a port
+    //trigger after the client is disconnected
     pub fn release_port(&self, port: u16) {
         let mut target_port = self.pool.get_mut(&port).unwrap();
         target_port.assigned = false;
         target_port.assign_to = None;
         target_port.assign_at = None;
+    }
+}
+
+//Simple guard struct to ensure the port is always released, even on panic or early return.
+struct PortGuard<'a> {
+    port_pool: &'a PortPool,
+    port: u16,
+    node_id: String,
+}
+
+//Implementation of Drop trait for PortGuard -> Define a custom behavior for when a value is about to go out of scope
+impl<'a> Drop for PortGuard<'a> {
+    fn drop(&mut self) {
+        self.port_pool.release_port(self.port);
+        println!("Released port {} from node '{}'", self.port, self.node_id);
     }
 }
