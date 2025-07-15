@@ -1,6 +1,7 @@
 use quinn::{ClientConfig, Endpoint};
 use rustls::RootCertStore;
 use rustls_pemfile::certs;
+use std::io::{self, Write};
 use std::{error::Error, fs::File, io::BufReader, net::SocketAddr, sync::Arc};
 
 //Read a self-signed certificate of server and trust it
@@ -40,14 +41,33 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     //Agfter that we open the bidirectional stream
     let (mut send_stream, mut recv_stream) = quinn_conn.open_bi().await?;
-    let message = b"hello tunnel, hello server";
-    send_stream.write_all(message).await?;
+
+    //First we send auth message to server in the format AUTH <node_id> <password>
+    //Alow user (client node) to type in node id and password and send it to server
+    print!("Enter node ID: ");
+    io::stdout().flush().unwrap();
+    let mut node_id = String::new();
+    io::stdin().read_line(&mut node_id)?;
+
+    print!("Enter password: ");
+    io::stdout().flush().unwrap();
+    let mut password = String::new();
+    io::stdin().read_line(&mut password)?;
+
+    let auth_message = format!("AUTH {} {}\n", node_id, password);
+    send_stream.write_all(auth_message.as_bytes()).await?; //We can only send bytes in the stream
     send_stream.finish()?;
 
     //Afrer sending, now we read frmo server (echo back)
     let mut buf = vec![0; 1024];
     let n = recv_stream.read(&mut buf).await?.unwrap();
-    println!("Received: {:?}", &buf[..n]);
+    let response = String::from_utf8_lossy(&buf[..n]); //Convert response in byte into string
+    if response.contains("Success") {
+        println!("Authentication successful!");
+    } else {
+        println!("Authentication failed!");
+        println!("Response: {}", response);
+    }
 
     Ok(())
 }

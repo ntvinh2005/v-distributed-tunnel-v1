@@ -13,7 +13,7 @@ pub async fn delete_node(pool: &PgPool) -> Result<(), sqlx::Error> {
         .await;
 
     match res {
-        Ok(r) if r.rows_affected() > 0 => println!("✅ Node '{}' deleted.", node_id),
+        Ok(r) if r.rows_affected() > 0 => println!("Node '{}' deleted.", node_id),
         Ok(_) => println!("Node not found."),
         Err(e) => println!("Error: {}", e),
     }

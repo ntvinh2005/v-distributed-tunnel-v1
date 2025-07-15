@@ -1,5 +1,8 @@
 use sqlx::PgPool;
 
+//TODO: I need to add more information about the nodes
+//Maybe logs and metrics of the connection
+//?: How to implement metric and log measurement and data transfer
 pub async fn list_nodes(pool: &PgPool) -> Result<(), sqlx::Error> {
     let rows =
         sqlx::query!("SELECT node_id, created_at, is_active FROM nodes ORDER BY node_id ASC")

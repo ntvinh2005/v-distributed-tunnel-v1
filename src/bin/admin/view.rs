@@ -10,8 +10,12 @@ pub async fn view_node(pool: &PgPool, node_id: &str) -> Result<(), sqlx::Error> 
 
     match row {
         Some(r) => {
+            let created_at_str = r
+                .created_at
+                .map(|dt| dt.to_string())
+                .unwrap_or_else(|| "N/A".to_string());
             println!("Node ID:    {}", r.node_id);
-            println!("Created At: {:?}", r.created_at);
+            println!("Created At: {:?}", created_at_str);
             println!("Active:     {}", r.is_active.unwrap_or(false));
         }
         None => println!("Node '{}' not found.", node_id),
