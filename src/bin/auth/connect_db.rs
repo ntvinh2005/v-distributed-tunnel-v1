@@ -15,7 +15,13 @@ pub async fn setup_pool() -> sqlx::Pool<sqlx::Postgres> {
         .max_connections(2)
         .connect(&db_url)
         .await
+        .map_err(|e| {
+            println!("Failed to connect to database: {}", e);
+            e
+        })
         .unwrap();
+
+    println!("Connected to database");
 
     return pool;
 }

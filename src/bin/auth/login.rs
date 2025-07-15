@@ -11,6 +11,7 @@ pub async fn verify_node(pool: &PgPool, node_id: &str, password: &str) -> bool {
     .unwrap()
     {
         let hash = PasswordHash::new(&row.password_hash).unwrap();
+        println!("Password hash: {}", row.password_hash);
         Argon2::default()
             .verify_password(password.as_bytes(), &hash)
             .is_ok()

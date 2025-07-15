@@ -1,4 +1,5 @@
 use quinn::{ClientConfig, Endpoint};
+use rpassword::read_password;
 use rustls::RootCertStore;
 use rustls_pemfile::certs;
 use std::io::{self, Write};
@@ -50,9 +51,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     io::stdin().read_line(&mut node_id)?;
 
     print!("Enter password: ");
-    io::stdout().flush().unwrap();
-    let mut password = String::new();
-    io::stdin().read_line(&mut password)?;
+    std::io::Write::flush(&mut std::io::stdout()).unwrap();
+    let password = read_password().unwrap();
 
     let auth_message = format!("AUTH {} {}\n", node_id, password);
     send_stream.write_all(auth_message.as_bytes()).await?; //We can only send bytes in the stream

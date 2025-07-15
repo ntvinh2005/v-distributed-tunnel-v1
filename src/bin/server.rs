@@ -1,12 +1,11 @@
 mod auth;
+mod pool;
 
 use quinn::{Endpoint, ServerConfig};
 use rustls_pemfile::{certs, pkcs8_private_keys, rsa_private_keys};
 use rustls_pki_types::{CertificateDer, PrivateKeyDer};
-use sqlx::PgPool;
-use sqlx::postgres::PgPoolOptions;
 use std::{error::Error, fs::File, io::BufReader, net::SocketAddr, sync::Arc};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+//use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 fn load_certs(path: &str) -> Result<Vec<CertificateDer<'static>>, Box<dyn Error>> {
     let file = File::open(path)?;
@@ -60,8 +59,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
     //Also connect to pg db before enter the loop
     let pool = auth::connect_db::setup_pool().await;
 
+    //Prepare our port pool (item to offer) before welcome our guesses (client)
+    let port_pool = pool::port_pool::PortPool::new(5001, 5999);
+
+    //Welcome some new clients.
     while let Some(connecting) = endpoint.accept().await {
         let pool = pool.clone(); //Every async spawn have its own handle to the pool;
+        let port_pool = port_pool.clone(); //Getting another reference to use in each thread share same pool.
         tokio::spawn(async move {
             match connecting.await {
                 Ok(conn) => {
@@ -75,7 +79,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         let auth_line = String::from_utf8_lossy(&buf[..n]);
                         let parts: Vec<&str> = auth_line.trim().splitn(3, ' ').collect();
                         //parts will have three parts: Header (AUTH), <node id> and <password>.
-                        if (parts.len() < 3) {
+                        if parts.len() < 3 {
                             send_stream
                                 .write(b"Unauthorized: Auth line lack of arguments\n")
                                 .await
@@ -83,7 +87,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                             continue;
                         }
 
-                        if (parts.len() > 3) {
+                        if parts.len() > 3 {
                             send_stream
                                 .write(b"Unauthorized: Auth line has too many arguments\n")
                                 .await
@@ -91,7 +95,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                             continue;
                         }
 
-                        if (parts[0] != "AUTH") {
+                        if parts[0] != "AUTH" {
                             send_stream
                                 .write(b"Unauthorized: Invalid auth header\n")
                                 .await
@@ -101,7 +105,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
                         let node_id = parts[1];
                         let password = parts[2];
-                        if (auth::login::verify_node(&pool, node_id, password).await == false) {
+
+                        let is_authorized =
+                            auth::login::verify_node(&pool, node_id, password).await;
+                        if is_authorized {
                             send_stream
                                 .write(b"Unauthorized: Invalid node id or password\n")
                                 .await
@@ -109,6 +116,22 @@ async fn main() -> Result<(), Box<dyn Error>> {
                             continue;
                         } else {
                             send_stream.write(b"Authorized: Success\n").await.unwrap();
+                            let assigned_port = port_pool.assign_random_port(node_id);
+                            if assigned_port.is_none() {
+                                send_stream
+                                    .write(b"Service unavailable: No port available\n")
+                                    .await
+                                    .unwrap();
+                                continue;
+                            } else {
+                                send_stream
+                                    .write(
+                                        format!("Port assigned: {}\n", assigned_port.unwrap())
+                                            .as_bytes(),
+                                    )
+                                    .await
+                                    .unwrap();
+                            }
                         }
                     }
                 }
