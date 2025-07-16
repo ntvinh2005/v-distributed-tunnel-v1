@@ -57,27 +57,7 @@ This generates `key.pem` and `cert.pem`.
 
 ---
 
-## 2. PostgreSQL Database Setup
-
-Create a database `quic_tunnel` and run this schema:
-
-```sql
-CREATE TABLE nodes (
-    node_id VARCHAR PRIMARY KEY,
-    password_hash VARCHAR NOT NULL,
-    created_at TIMESTAMP DEFAULT NOW()
-);
-```
-
-Set environment variable (update with your credentials):
-
-```sh
-export DATABASE_URL="postgres://postgres:yourpassword@localhost/quic_tunnel"
-```
-
----
-
-## 3. Build the Project
+## 2. Build the Project
 
 Build release version:
 
@@ -93,7 +73,7 @@ cargo build
 
 ---
 
-## 4. Run Tunnel-Admin (Manage Nodes)
+## 3. Run Tunnel-Admin (Manage Nodes)
 
 Start the node management CLI:
 
@@ -103,8 +83,7 @@ cargo run --bin tunnel-admin
 
 Available commands:
 - `list`: List nodes
-- `add`: Add node (requires node ID and password)
-- `edit-password`: Change node password
+- `add <node_id>`: Add node (requires node ID). This also generate a password randomly for you. Remember to use that password when authenticating when trying to connecting client node.
 - `delete`: Remove node
 - `view <node_id>`: View node details
 - `help`: Display help
@@ -120,7 +99,7 @@ Password: secret123
 
 ---
 
-## 5. Start the QUIC Server
+## 4. Start the QUIC Server
 
 ```sh
 cargo run --bin server
@@ -130,7 +109,7 @@ Server listens on UDP port 5000.
 
 ---
 
-## 6. Start the QUIC Client
+## 5. Start the QUIC Client
 
 ```sh
 cargo run --bin client
@@ -140,7 +119,7 @@ Authenticate with node ID/password set earlier.
 
 ---
 
-## 7. Setup Local Echo Server (Remote Tester)
+## 6. Setup Local Echo Server (Remote Tester)
 
 This Go program creates a simple TCP echo server for tunnel testing.
 
@@ -184,7 +163,7 @@ go run echo-server.go
 
 ---
 
-## 8. Test the Tunnel End-to-End
+## 7. Test the Tunnel End-to-End
 
 Use netcat (`nc`) or this simple Go tester script:
 
@@ -233,7 +212,7 @@ Any message typed will be echoed back through the tunnel!
 
 ---
 
-## 9. Troubleshooting
+## 8. Troubleshooting
 
 - Ensure `cert.pem` matches on both server/client.
 - Check PostgreSQL connection string correctness.
