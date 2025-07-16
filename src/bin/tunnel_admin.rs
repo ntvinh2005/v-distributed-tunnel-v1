@@ -1,50 +1,39 @@
-mod admin;
-mod auth;
-
 use std::io::{self, Write};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::net::TcpStream;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let pool = auth::connect_db::setup_pool().await;
+    let mut stream = TcpStream::connect("127.0.0.1:6969").await?;
+    let (reader, mut writer) = stream.split();
+    let mut reader = BufReader::new(reader);
+    let mut line = String::new();
+    let mut response = String::new();
 
-    println!("");
-    println!("Connect to the Hilio Network database");
-    println!("");
-    println!("Welcome to dugeon master!");
-    println!("Sir, to start you can type 'help' for available commands.");
+    println!("Connected to admin port on 127.0.0.1:6969");
+    println!(
+        "Cast the spell, e.g.:create/add node123 $argon2id$...\ndestroy/remove/delete node123\nview node123\nlist\nType 'exit' or 'quit' to quit.\n"
+    );
 
     loop {
-        print!("dugeon-master>");
+        print!("dugeon-master> ");
         io::stdout().flush().unwrap();
-        let mut master_command = String::new();
-        //If error, we exit our admin tool
-        if io::stdin().read_line(&mut master_command).is_err() {
-            println!();
+        line.clear();
+        io::stdin().read_line(&mut line)?;
+        let spell = line.trim();
+        if spell == "exit" || spell == "quit" {
             break;
         }
-        let master_command = master_command.trim();
-        if master_command == "exit" || master_command == "quit" {
-            break;
-        }
-        match master_command {
-            "help" => admin::print_help(),
-            "list" => admin::list::list_nodes(&pool).await?,
-            "add" => admin::add::add_node(&pool).await?,
-            "edit-password" => admin::edit::edit_password(&pool).await?,
-            "delete" => admin::delete::delete_node(&pool).await?,
-            //view <node id>
-            cmd if cmd.starts_with("view ") => {
-                let node_id = cmd.trim_start_matches("view ").trim();
-                admin::view::view_node(&pool, node_id).await?;
+        writer.write_all(spell.as_bytes()).await?;
+        writer.write_all(b"\n").await?;
+        loop {
+            response.clear();
+            reader.read_line(&mut response).await?;
+            if response.trim_end() == "--END--" {
+                break;
             }
-            "" => println!("Type 'help' for available commands."),
-            _ => println!(
-                "Unknown command: {}. Type 'help' for available commands.",
-                master_command
-            ),
+            print!("{}", response);
         }
     }
-    println!("Goodbye dugeon-master! :)");
-    println!("We gonna meet again soon...");
     Ok(())
 }

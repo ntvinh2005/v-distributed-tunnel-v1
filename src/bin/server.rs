@@ -1,7 +1,8 @@
-mod auth;
+mod admin;
 mod forward;
 mod pool;
 
+use admin::node_store::NodeStore;
 use quinn::{Endpoint, RecvStream, SendStream, ServerConfig};
 use rustls_pemfile::{certs, pkcs8_private_keys, rsa_private_keys};
 use rustls_pki_types::{CertificateDer, PrivateKeyDer};
@@ -114,8 +115,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let address: SocketAddr = "0.0.0.0:5000".parse()?;
     let endpoint = Endpoint::server(server_config, address)?;
 
-    //Also connect to pg db before enter the loop
-    let pool = auth::connect_db::setup_pool().await;
+    //Create node store
+    let node_store = Arc::new(NodeStore::new());
+
+    //Start admin CLI listener
+    //This help us add new node info to our memory!
+    tokio::spawn(admin::admin_listener::start_admin_listener(
+        node_store.clone(),
+    ));
 
     //Prepare our port pool (item to offer) before welcome our guesses (client)
     let port_pool = Arc::new(pool::port_pool::PortPool::new(5001, 5999));
@@ -125,7 +132,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     //Welcome some new clients.
     while let Some(connecting) = endpoint.accept().await {
-        let pool = pool.clone(); //Every async spawn have its own handle to the pool;
+        let node_store = node_store.clone();
         let port_pool = port_pool.clone(); //Getting another reference to use in each thread share same pool.
         let port_registry = port_registry.clone();
         tokio::spawn(async move {
@@ -169,7 +176,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         let password = parts[2].trim();
 
                         let is_authorized =
-                            auth::login::verify_node(&pool, node_id, password).await;
+                            admin::login::verify_node(&node_store, node_id, password);
                         if !is_authorized {
                             send_stream
                                 .write(b"Unauthorized: Invalid node id or password\n")
