@@ -1,22 +1,27 @@
-# V-Distributed Tunnel (QUIC) – Quick Start
+# V-Distributed Tunnel (QUIC) – Comprehensive Guide
 
-This document's purpose is to guild others in building, configuring, and testing their Rust-based QUIC tunnel—connecting a server and client securely on their local machine.
+This document thoroughly guides through setting up, configuring, and testing your own Rust-based secure QUIC tunnel, including managing tunnel nodes using PostgreSQL and performing end-to-end testing using a local TCP echo server.
 
 ---
 
 ## Prerequisites
 
-- Rust (stable): https://rustup.rs/
-- OpenSSL (for generating certificates):
-  - On Windows: Win32/Win64 OpenSSL: https://slproweb.com/products/Win32OpenSSL.html
-  - On macOS: `brew install openssl`
-  - On Linux: `sudo apt install openssl`
+Ensure the following tools are installed:
+
+- **Rust** (stable): [https://rustup.rs](https://rustup.rs)
+- **OpenSSL** (for certificates):
+  - Windows: [Win32/Win64 OpenSSL](https://slproweb.com/products/Win32OpenSSL.html)
+  - macOS: `brew install openssl`
+  - Linux: `sudo apt install openssl`
+- **PostgreSQL:**
+  - Windows, macOS, Linux: [https://www.postgresql.org/download/](https://www.postgresql.org/download/)
+  - Docker: `docker run --name pg -e POSTGRES_PASSWORD=yourpassword -p 5432:5432 -d postgres`
 
 ---
 
-## 1. Generate Self-Signed Certificates
+## 1. Generate Certificates
 
-You need a certificate and key (not a CA). Create a config file called `server.conf` with this content:
+Create `server.conf`:
 
 ```ini
 [ req ]
@@ -42,23 +47,45 @@ extendedKeyUsage = serverAuth
 subjectAltName = @alt_names
 ```
 
-Then run:
+Generate certificates:
 
 ```sh
 openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -days 365 -nodes -config server.conf -extensions v3_ca
 ```
 
-This produces `key.pem` and `cert.pem`.
+This generates `key.pem` and `cert.pem`.
 
 ---
 
-## 2. Build the Project
+## 2. PostgreSQL Database Setup
+
+Create a database `quic_tunnel` and run this schema:
+
+```sql
+CREATE TABLE nodes (
+    node_id VARCHAR PRIMARY KEY,
+    password_hash VARCHAR NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+Set environment variable (update with your credentials):
+
+```sh
+export DATABASE_URL="postgres://postgres:yourpassword@localhost/quic_tunnel"
+```
+
+---
+
+## 3. Build the Project
+
+Build release version:
 
 ```sh
 cargo build --release
 ```
 
-Or for debug mode:
+Or debug version:
 
 ```sh
 cargo build
@@ -66,58 +93,161 @@ cargo build
 
 ---
 
-## 3. Start the Server
+## 4. Run Tunnel-Admin (Manage Nodes)
 
-In one terminal:
+Start the node management CLI:
+
+```sh
+cargo run --bin tunnel-admin
+```
+
+Available commands:
+- `list`: List nodes
+- `add`: Add node (requires node ID and password)
+- `edit-password`: Change node password
+- `delete`: Remove node
+- `view <node_id>`: View node details
+- `help`: Display help
+- `exit` or `quit`: Exit CLI
+
+Example add node:
+
+```sh
+dugeon-master> add
+Node ID: node1
+Password: secret123
+```
+
+---
+
+## 5. Start the QUIC Server
 
 ```sh
 cargo run --bin server
 ```
 
-The server will listen on UDP port 5000.
+Server listens on UDP port 5000.
 
 ---
 
-## 4. Start the Client
-
-In a second terminal:
+## 6. Start the QUIC Client
 
 ```sh
 cargo run --bin client
 ```
 
-The client will connect to `localhost:5000` (edit the code if you want to use a remote server).
+Authenticate with node ID/password set earlier.
 
 ---
 
-## 5. Confirm Success
+## 7. Setup Local Echo Server (Remote Tester)
 
-- The server terminal should show new connection and received data.
-- The client should print something like:
+This Go program creates a simple TCP echo server for tunnel testing.
 
-  ```
-  Connected to 127.0.0.1:5000
-  Received: [some ASCII bytes, find out the secret yourself]
-  ```
+Create `echo-server.go`:
 
-If you see an error about `invalid peer certificate: ...CaUsedAsEndEntity`, your certificate was not generated with `CA:FALSE`—regenerate using the config above.
+```go
+package main
+
+import (
+    "fmt"
+    "io"
+    "net"
+)
+
+func main() {
+    listener, err := net.Listen("tcp", ":8080")
+    if err != nil {
+        panic(err)
+    }
+    fmt.Println("Echo server listening on :8080")
+
+    for {
+        conn, err := listener.Accept()
+        if err != nil {
+            fmt.Println("Accept error:", err)
+            continue
+        }
+        go func(c net.Conn) {
+            defer c.Close()
+            io.Copy(c, c)
+        }(conn)
+    }
+}
+```
+
+Run echo server:
+
+```sh
+go run echo-server.go
+```
 
 ---
 
-## 6. Troubleshooting
+## 8. Test the Tunnel End-to-End
 
-- Make sure both binaries use the same `cert.pem`.
-- If running across different machines, copy `cert.pem` to both and set the client’s server IP.
+Use netcat (`nc`) or this simple Go tester script:
+
+`tcp-tester.go`:
+
+```go
+package main
+
+import (
+    "bufio"
+    "fmt"
+    "net"
+    "os"
+)
+
+func main() {
+    conn, err := net.Dial("tcp", "localhost:<assigned_port>")
+    if err != nil {
+        fmt.Println("Connection error:", err)
+        return
+    }
+    defer conn.Close()
+
+    fmt.Println("Connected to tunnel! Type messages:")
+    go func() {
+        io.Copy(os.Stdout, conn)
+    }()
+
+    scanner := bufio.NewScanner(os.Stdin)
+    for scanner.Scan() {
+        line := scanner.Text()
+        fmt.Fprintln(conn, line)
+    }
+}
+```
+
+Replace `<assigned_port>` with port from client terminal.
+
+Run the tester:
+
+```sh
+go run tcp-tester.go
+```
+
+Any message typed will be echoed back through the tunnel!
+
+---
+
+## 9. Troubleshooting
+
+- Ensure `cert.pem` matches on both server/client.
+- Check PostgreSQL connection string correctness.
+- Confirm port availability (5000 for QUIC, 8080 for Echo).
 
 ---
 
 ## Contributing
 
-This project is a great place to start learning async Rust, QUIC, and secure tunnels.
-Pull requests and improvements are welcome.
+Pull requests, bug reports, and feature requests are welcome! This project is ideal for exploring Rust async, QUIC protocols, and secure tunneling.
+Or please just give me a star if you are reading it (You must feel interested enough to read until this point)
 
 ---
 
 ## License
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[MIT License](LICENSE)
