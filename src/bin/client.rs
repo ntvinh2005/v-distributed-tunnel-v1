@@ -1,5 +1,7 @@
+mod forward;
+
 use quinn::{ClientConfig, Endpoint};
-use rpassword::read_password;
+//use rpassword::read_password;
 use rustls::RootCertStore;
 use rustls_pemfile::certs;
 use std::io::{self, Write};
@@ -66,42 +68,82 @@ async fn main() -> Result<(), Box<dyn Error>> {
     send_stream.write_all(auth_message.as_bytes()).await?; //We can only send bytes in the stream
     send_stream.finish()?;
 
-    println!("Message sent: {}", auth_message);
-
-    //Afrer sending, now we read frmo server (echo back)
     let mut buf = vec![0; 1024];
-    let n = recv_stream.read(&mut buf).await?.unwrap();
-    let response = String::from_utf8_lossy(&buf[..n]); //Convert response in byte into string
-    println!("Response: {}", response);
-    if response.contains("Success") {
-        println!("Authentication successful!");
-        let mut buf = vec![0; 1024];
-        match recv_stream.read(&mut buf).await {
-            Ok(n) => {
-                let response = String::from_utf8_lossy(&buf[..n.unwrap()]);
-                if response.starts_with("ASSIGNED") {
-                    println!("Assigned port: {}", response[8..].trim()); //Remove the first 8 characters fromt the string
+    let mut linebuf = String::new();
+    let mut authenticated = false;
+    let mut assigned_port: Option<u16> = None;
 
-                    //I'm kinda bad at Rust so need to write a plan before implement.
-                    // Pseudocode:
-                    // loop {
-                    //     read from local socket
-                    //     write to send_stream
-                    //     read from recv_stream
-                    //     write to local socket
-                    // }
+    //here, we read lines in a loop until both "Success" and "ASSIGNED" are received
+    loop {
+        let n = match recv_stream.read(&mut buf).await? {
+            Some(n) if n > 0 => n,
+            _ => break,
+        };
+        linebuf.push_str(&String::from_utf8_lossy(&buf[..n]));
+
+        while let Some(idx) = linebuf.find('\n') {
+            let line = linebuf[..idx].trim();
+            println!("Response: {}", line);
+
+            if line.contains("Success") {
+                println!("Authentication successful!");
+                authenticated = true;
+            } else if line.starts_with("ASSIGNED") {
+                assigned_port = line[8..].trim().parse::<u16>().ok();
+                if let Some(port) = assigned_port {
+                    println!(
+                        "Tunnel ready! Assigned port: {}. Connect your remote tester to this port.",
+                        port
+                    );
+                }
+            } else if line.contains("Unauthorized") {
+                println!("Authentication failed!");
+                return Ok(());
+            }
+
+            linebuf = linebuf[idx + 1..].to_string(); //remove processed line from our line buffer
+        }
+
+        //If both success and assigned, break to proceed
+        //else, listening?
+        //TODO: Is there a better way to handle reading?
+        if authenticated && assigned_port.is_some() {
+            break;
+        }
+    }
+    if authenticated {
+        if let Some(port) = assigned_port {
+            println!(
+                "Tunnel ready! Assigned port: {}. Waiting for incoming connections...",
+                port
+            );
+            //Accept new bi-directional streams from the server (each represents a remote tester connection)
+            //We only start forwarding things when there is a remote tester start connecting to server end of the tunnel
+            //Then server send new stream, and we can start forwarding
+            loop {
+                match quinn_conn.accept_bi().await {
+                    Ok((send_stream, recv_stream)) => {
+                        println!("[Tunnel] Accepted new stream from server. Starting relay.");
+                        //Each new remote tester connection gets its own tunnel handler
+                        tokio::spawn(forward::client_tunnel_handler::handle_tunnel(
+                            send_stream,
+                            recv_stream,
+                        ));
+                    }
+                    Err(e) => {
+                        eprintln!("[Tunnel] Failed to accept new stream: {e}");
+                        break;
+                    }
                 }
             }
-            Err(e) => {
-                // Read failed, handle error
-                println!("Read failed: {}", e);
-                return Err("Read failed".into());
-            }
+            println!(
+                "Tunnel loop for node '{}' on port {} has ended.",
+                node_id, port
+            );
+        } else {
+            println!("No assigned port received!");
         }
-    } else {
-        println!("Authentication failed!");
-        println!("Response: {}", response);
-        return Ok(());
     }
+
     Ok(())
 }

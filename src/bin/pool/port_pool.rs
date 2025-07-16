@@ -76,14 +76,13 @@ impl PortPool {
 }
 
 //Simple guard struct to ensure the port is always released, even on panic or early return.
-pub struct PortGuard<'a> {
-    pub port_pool: &'a PortPool,
+pub struct PortGuard {
+    pub port_pool: Arc<PortPool>,
     pub port: u16,
     pub node_id: String,
 }
 
-//Implementation of Drop trait for PortGuard -> Define a custom behavior for when a value is about to go out of scope
-impl<'a> Drop for PortGuard<'a> {
+impl Drop for PortGuard {
     fn drop(&mut self) {
         self.port_pool.release_port(self.port);
         println!("Released port {} from node '{}'", self.port, self.node_id);
