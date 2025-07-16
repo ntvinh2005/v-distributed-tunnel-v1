@@ -92,9 +92,7 @@ Available commands:
 Example add node:
 
 ```sh
-dugeon-master> add
-Node ID: node1
-Password: secret123
+dugeon-master> add node1
 ```
 
 ---
