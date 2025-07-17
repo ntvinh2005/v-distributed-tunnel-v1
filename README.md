@@ -13,9 +13,6 @@ Ensure the following tools are installed:
   - Windows: [Win32/Win64 OpenSSL](https://slproweb.com/products/Win32OpenSSL.html)
   - macOS: `brew install openssl`
   - Linux: `sudo apt install openssl`
-- **PostgreSQL:**
-  - Windows, macOS, Linux: [https://www.postgresql.org/download/](https://www.postgresql.org/download/)
-  - Docker: `docker run --name pg -e POSTGRES_PASSWORD=yourpassword -p 5432:5432 -d postgres`
 
 ---
 
