@@ -3,3 +3,5 @@ plan.md
 cert.pem
 key.pem
 .env
+iperf3.exe
+cygwin1.dll

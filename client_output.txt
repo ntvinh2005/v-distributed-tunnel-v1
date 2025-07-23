@@ -1,0 +1,27 @@
+Starting QUIC client on UDP port 5000
+Connected to [::ffff:127.0.0.1]:5000
+Response: Authorized: Success
+Authentication successful!
+Response: ASSIGNED 5897
+Tunnel ready! Assigned port: 5897. Connect your remote tester to this port.
+Tunnel ready! Assigned port: 5897. Waiting for incoming connections...
+[Tunnel] Accepted new stream from server. Starting relay.
+[Tunnel] QUIC -> TCP: QUIC closed connection
+[Tunnel] TCP -> QUIC: TCP closed connection
+[Tunnel] Bidirectional relay fully completed.
+[Tunnel] Accepted new stream from server. Starting relay.
+[Tunnel] QUIC -> TCP: QUIC closed connection
+[Tunnel] TCP -> QUIC: TCP closed connection
+[Tunnel] Bidirectional relay fully completed.
+[Tunnel] Accepted new stream from server. Starting relay.
+[Tunnel] QUIC -> TCP: QUIC closed connection
+[Tunnel] TCP -> QUIC: TCP closed connection
+[Tunnel] Bidirectional relay fully completed.
+[Tunnel] Accepted new stream from server. Starting relay.
+[Tunnel] QUIC -> TCP: QUIC closed connection
+[Tunnel] TCP -> QUIC: TCP closed connection
+[Tunnel] Bidirectional relay fully completed.
+[Tunnel] Accepted new stream from server. Starting relay.
+[Tunnel] QUIC -> TCP: QUIC closed connection
+[Tunnel] TCP -> QUIC: TCP closed connection
+[Tunnel] Bidirectional relay fully completed.

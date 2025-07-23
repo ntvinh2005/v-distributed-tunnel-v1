@@ -2,10 +2,21 @@ mod forward;
 
 use quinn::{ClientConfig, Endpoint};
 //use rpassword::read_password;
+use clap::Parser;
 use rustls::RootCertStore;
 use rustls_pemfile::certs;
 use std::io::{self, Write};
 use std::{error::Error, fs::File, io::BufReader, net::SocketAddr, sync::Arc};
+
+#[derive(Parser, Debug)]
+#[command(author, version, about = "QUIC Tunnel Client", long_about = None)]
+struct Args {
+    #[arg(long)]
+    node_id: Option<String>,
+
+    #[arg(long)]
+    password: Option<String>,
+}
 
 //Read a self-signed certificate of server and trust it
 //The client will only connect if the server's certificate is matched.
@@ -47,15 +58,22 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     //First we send auth message to server in the format AUTH <node_id> <password>
     //Alow user (client node) to type in node id and password and send it to server
-    print!("Enter node ID: ");
-    io::stdout().flush().unwrap();
-    let mut node_id = String::new();
-    io::stdin().read_line(&mut node_id)?;
+    let args = Args::parse(); //This just for testing.
 
-    print!("Enter password: ");
-    io::stdout().flush().unwrap();
-    let mut password = String::new();
-    io::stdin().read_line(&mut password)?;
+    let mut node_id = args.node_id.unwrap_or_else(|| {
+        print!("Enter node ID: ");
+        io::stdout().flush().unwrap();
+        let mut n = String::new();
+        io::stdin().read_line(&mut n).unwrap();
+        n.trim().to_string()
+    });
+    let mut password = args.password.unwrap_or_else(|| {
+        print!("Enter password: ");
+        io::stdout().flush().unwrap();
+        let mut p = String::new();
+        io::stdin().read_line(&mut p).unwrap();
+        p.trim().to_string()
+    });
 
     // print!("Enter password: ");
     // std::io::Write::flush(&mut std::io::stdout()).unwrap();
