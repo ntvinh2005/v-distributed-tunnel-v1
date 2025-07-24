@@ -6,7 +6,7 @@ use clap::Parser;
 use rustls::RootCertStore;
 use rustls_pemfile::certs;
 use std::io::{self, Write};
-use std::{error::Error, fs::File, io::BufReader, net::SocketAddr, sync::Arc};
+use std::{env, error::Error, fs::File, io::BufReader, net::SocketAddr, sync::Arc};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about = "QUIC Tunnel Client", long_about = None)]
@@ -32,6 +32,8 @@ fn load_root_certs(path: &str) -> Result<RootCertStore, Box<dyn Error>> {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    dotenv::dotenv().ok();
+
     tracing_subscriber::fmt::init();
     println!("Starting QUIC client on UDP port 5000");
 
@@ -49,7 +51,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     //Here we connect to server
     //When we put this to server, we need to change the IP
-    let server_addr: SocketAddr = "127.0.0.1:5000".parse().unwrap();
+    let ip = env::var("SERVER_PUBLIC_IP").unwrap_or_else(|_| "127.0.0.1".to_string());
+    let port = env::var("TUNNEL_PORT").unwrap_or_else(|_| "5000".to_string());
+    let addr = format!("{}:{}", ip, port);
+    let server_addr: SocketAddr = addr.parse().unwrap();
     let quinn_conn = endpoint.connect(server_addr, "localhost")?.await?; //Connect to server IP and using name localhost and server's self-signed cert.
     println!("Connected to {}", quinn_conn.remote_address());
 

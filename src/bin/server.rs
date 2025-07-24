@@ -6,7 +6,7 @@ use admin::node_store::NodeStore;
 use quinn::{Endpoint, RecvStream, SendStream, ServerConfig};
 use rustls_pemfile::{certs, pkcs8_private_keys, rsa_private_keys};
 use rustls_pki_types::{CertificateDer, PrivateKeyDer};
-use std::{error::Error, fs::File, io::BufReader, net::SocketAddr, sync::Arc};
+use std::{env, error::Error, fs::File, io::BufReader, net::SocketAddr, sync::Arc};
 //use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
@@ -48,7 +48,8 @@ pub async fn start_tcp_listener_for_port(
         dyn Fn(TcpStream, SendStream, RecvStream) -> tokio::task::JoinHandle<()> + Send + Sync,
     >,
 ) {
-    let listener = match TcpListener::bind(("0.0.0.0", port)).await {
+    let ip = env::var("TUNNEL_IP").unwrap_or_else(|_| "0.0.0.0".to_string());
+    let listener = match TcpListener::bind((ip, port)).await {
         Ok(l) => l,
         Err(e) => {
             eprintln!("Failed to bind TCP listener on port {}: {:?}", port, e);
@@ -99,6 +100,7 @@ pub async fn start_tcp_listener_for_port(
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    dotenv::dotenv().ok();
     tracing_subscriber::fmt::init();
     println!("Starting QUIC server on UDP port 5000");
 
@@ -112,7 +114,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .unwrap()
         .max_concurrent_bidi_streams(100u32.into()); //TODO: Change the number of concurrent connections later. This 100 just for test
 
-    let address: SocketAddr = "0.0.0.0:5000".parse()?;
+    let ip = env::var("TUNNEL_IP").unwrap_or_else(|_| "0.0.0.0".to_string());
+    let port = env::var("TUNNEL_PORT").unwrap_or_else(|_| "5000".to_string());
+    let addr = format!("{}:{}", ip, port);
+    let address: SocketAddr = addr.parse()?;
     let endpoint = Endpoint::server(server_config, address)?;
 
     //Create node store
