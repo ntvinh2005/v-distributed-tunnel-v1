@@ -152,7 +152,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         };
                         let auth_line = String::from_utf8_lossy(&buf[..n]);
                         let parts: Vec<&str> = auth_line.trim().splitn(3, ' ').collect();
-                        //parts will have three parts: Header (AUTH), <node id> and <password>.
+                        //parts will have three parts: Header (AUTH), <node id> and <hex preimage>.
                         if parts.len() < 3 {
                             send_stream
                                 .write(b"Unauthorized: Auth line lack of arguments\n")
@@ -178,69 +178,99 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         }
 
                         let node_id = parts[1].trim();
-                        let password = parts[2].trim();
+                        let preimage = parts[2].trim();
 
                         let is_authorized =
-                            admin::login::verify_node(&node_store, node_id, password);
+                            admin::login::verify_node(&node_store, node_id, preimage);
                         if !is_authorized {
                             send_stream
-                                .write(b"Unauthorized: Invalid node id or password\n")
+                                .write(b"Unauthorized: Invalid node id or preimage\n")
                                 .await
                                 .unwrap();
                             continue;
                         } else {
                             send_stream.write(b"Authorized: Success\n").await.unwrap();
-                            let assigned_port = port_pool.assign_random_port(node_id);
+                            let node_seed_opt = node_store.get_seed(node_id);
+                            let assigned_result =
+                                port_pool.assign_static_port(node_id, node_seed_opt.as_deref());
+                            match assigned_result {
+                                pool::port_pool::StaticPortAssignResult::Success(port) => {
+                                    println!("Assigned port {} to node '{}'", port, node_id);
+                                    send_stream
+                                        .write(
+                                            format!("ASSIGNED {}\n", port).as_bytes(), //Send back protocal message ASSIGNED <port>
+                                        )
+                                        .await
+                                        .unwrap();
+                                    println!("Sent port {} to node '{}'", port, node_id,);
 
-                            if assigned_port.is_none() {
-                                send_stream
-                                    .write(b"Service unavailable: No port available\n")
-                                    .await
-                                    .unwrap();
-                                continue;
-                            } else {
-                                println!(
-                                    "Assigned port {} to node '{}'",
-                                    assigned_port.unwrap(),
-                                    node_id
-                                );
-                                send_stream
-                                    .write(
-                                        format!("ASSIGNED {}\n", assigned_port.unwrap()).as_bytes(), //Send back protocal message ASSIGNED <port>
-                                    )
-                                    .await
-                                    .unwrap();
-                                println!(
-                                    "Sent port {} to node '{}'",
-                                    assigned_port.unwrap(),
-                                    node_id,
-                                );
+                                    //Create an instance of port guard to release the port after the client is disconnected or something go wrong.
+                                    let port_guard = pool::port_pool::PortGuard {
+                                        port_pool: port_pool.clone(),
+                                        port: port,
+                                        node_id: node_id.to_string(),
+                                    };
 
-                                //Create an instance of port guard to release the port after the client is disconnected or something go wrong.
-                                let port_guard = pool::port_pool::PortGuard {
-                                    port_pool: port_pool.clone(),
-                                    port: assigned_port.unwrap(),
-                                    node_id: node_id.to_string(),
-                                };
+                                    //Each assigned port will have it own tcp listener
+                                    let node_info = pool::port_registry::NodeInfo {
+                                        conn: conn.clone(),
+                                        node_id: node_id.to_string(),
+                                    };
+                                    port_registry.insert(port, node_info);
 
-                                //Each assigned port will have it own tcp listener
-                                let node_info = pool::port_registry::NodeInfo {
-                                    conn: conn.clone(),
-                                    node_id: node_id.to_string(),
-                                };
-                                port_registry.insert(assigned_port.unwrap(), node_info);
-
-                                let port_registry = port_registry.clone(); // clone for the listener task
-                                let forward_fn = forward::server_tunnel_handler::make_forward_fn(); // supply your forward_fn Arc<dyn Fn...>
-                                tokio::spawn(async move {
+                                    let port_registry = port_registry.clone();
+                                    let forward_fn =
+                                        forward::server_tunnel_handler::make_forward_fn();
+                                    tokio::spawn(async move {
+                                        start_tcp_listener_for_port(
+                                            port,
+                                            port_registry,
+                                            forward_fn,
+                                        )
+                                        .await;
+                                    });
+                                    // ---- MAIN SESSION LOOP ----
+                                    //accept new bidirectional streams from client as long as session is alive
                                     let _guard = port_guard;
-                                    start_tcp_listener_for_port(
-                                        assigned_port.unwrap(),
-                                        port_registry,
-                                        forward_fn,
-                                    )
-                                    .await;
-                                });
+                                    loop {
+                                        match conn.accept_bi().await {
+                                            Ok((send_stream, recv_stream)) => {
+                                                //ignore rn
+                                            }
+                                            Err(_) => {
+                                                //session end, portguard release.
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                                pool::port_pool::StaticPortAssignResult::SeedMissing => {
+                                    send_stream
+                                        .write(b"Service unavailable: Seed missing\n")
+                                        .await
+                                        .unwrap();
+                                    continue;
+                                }
+                                pool::port_pool::StaticPortAssignResult::SeedHexInvalid => {
+                                    send_stream
+                                        .write(b"Service unavailable: Seed hex invalid\n")
+                                        .await
+                                        .unwrap();
+                                    continue;
+                                }
+                                pool::port_pool::StaticPortAssignResult::PortInUse(port) => {
+                                    send_stream
+                                        .write(
+                                            format!(
+                                                "Service unavailable: Port {} is in use\n",
+                                                port
+                                            )
+                                            .as_bytes(),
+                                        )
+                                        .await
+                                        .unwrap();
+                                    continue;
+                                }
                             }
                         }
                     }

@@ -1,17 +1,13 @@
-use argon2::{
-    Argon2,
-    password_hash::{PasswordHasher, SaltString},
-};
 use dashmap::DashMap;
-use rand_core::OsRng;
 use time::OffsetDateTime;
-
-use super::password_gen;
+use v_distributed_tunnel_v1::common::admin::client_config::ClientConfig;
 
 #[derive(Clone)]
 pub struct Node {
     pub node_id: String,
-    pub password_hash: String,
+    pub seed: String,
+    pub current_index: usize,
+    pub anchor: String,
     pub created_at: OffsetDateTime,
     pub last_login: Option<OffsetDateTime>,
 }
@@ -28,21 +24,31 @@ impl NodeStore {
         }
     }
     pub fn add_node(&self, node_id: String) -> String {
-        let password = password_gen::generate_password();
-        let argon2 = Argon2::default();
-        let salt = SaltString::generate(&mut OsRng);
-        let password_hash = argon2
-            .hash_password(password.as_bytes(), &salt)
-            .expect("Password hashing failed")
-            .to_string();
+        const CHAIN_LENGTH: usize = 100;
+        let seed = ClientConfig::generate_seed();
+        let seed_str = ClientConfig::encode_seed(&seed);
+        let config = ClientConfig::new(
+            node_id.clone(),
+            seed_str.clone(),
+            CHAIN_LENGTH - 1,
+            CHAIN_LENGTH,
+        );
+        ClientConfig::write_toml_file(&config).unwrap();
+        let mut hash = hex::decode(&seed_str).unwrap();
+        for _ in 0..CHAIN_LENGTH {
+            hash = blake3::hash(&hash).as_bytes().to_vec();
+        }
+        let anchor = hex::encode(&hash);
         let node = Node {
             node_id: node_id.clone(),
-            password_hash: password_hash,
+            seed: seed_str.clone(),
+            anchor: anchor.clone(), //initially it is h_0 = hash(seed). Updated everytime login successfully
+            current_index: CHAIN_LENGTH - 1,
             created_at: OffsetDateTime::now_utc(),
             last_login: None,
         };
         self.nodes.insert(node_id, node);
-        return password;
+        return seed_str; //For the sake of debugging for this function, we return the seed, but won't be anymore in prod.
     }
 
     pub fn remove_node(&self, node_id: String) {
@@ -60,5 +66,15 @@ impl NodeStore {
         if let Some(mut entry) = self.nodes.get_mut(node_id) {
             entry.last_login = Some(OffsetDateTime::now_utc());
         }
+    }
+
+    pub fn set_anchor(&self, node_id: &str, anchor: &str) {
+        if let Some(mut entry) = self.nodes.get_mut(node_id) {
+            entry.anchor = anchor.to_string();
+        }
+    }
+
+    pub fn get_seed(&self, node_id: &str) -> Option<String> {
+        self.nodes.get(node_id).map(|node| node.seed.clone())
     }
 }

@@ -1,4 +1,7 @@
 mod forward;
+use blake3;
+use hex;
+use v_distributed_tunnel_v1::common::helper::config::{load_config, save_config};
 
 use quinn::{ClientConfig, Endpoint};
 //use rpassword::read_password;
@@ -61,33 +64,23 @@ async fn main() -> Result<(), Box<dyn Error>> {
     //Agfter that we open the bidirectional stream
     let (mut send_stream, mut recv_stream) = quinn_conn.open_bi().await?;
 
-    //First we send auth message to server in the format AUTH <node_id> <password>
-    //Alow user (client node) to type in node id and password and send it to server
-    let args = Args::parse(); //This just for testing.
+    //here we prepare the new preimage to send to server for validate
+    let config_path = "config.toml";
+    let mut config = load_config(config_path);
+    let seed_bytes = hex::decode(&config.seed).expect("Invalid hex seed");
+    let mut hash = seed_bytes.to_vec();
+    for i in 0..config.current_index {
+        hash = blake3::hash(&hash).as_bytes().to_vec();
+        let computed = blake3::hash(&hash);
+        let computed_hex = computed.to_hex().to_string();
+        println!("New hash {}: {}", i, computed_hex);
+    }
+    let preimage_hex = hex::encode(&hash);
 
-    let mut node_id = args.node_id.unwrap_or_else(|| {
-        print!("Enter node ID: ");
-        io::stdout().flush().unwrap();
-        let mut n = String::new();
-        io::stdin().read_line(&mut n).unwrap();
-        n.trim().to_string()
-    });
-    let mut password = args.password.unwrap_or_else(|| {
-        print!("Enter password: ");
-        io::stdout().flush().unwrap();
-        let mut p = String::new();
-        io::stdin().read_line(&mut p).unwrap();
-        p.trim().to_string()
-    });
+    //First we send auth message to server in the format AUTH <node_id> <new hex preimage>
 
-    // print!("Enter password: ");
-    // std::io::Write::flush(&mut std::io::stdout()).unwrap();
-    // let password = read_password().unwrap();
-
-    node_id = node_id.trim().to_string();
-    password = password.trim().to_string();
-
-    let auth_message = format!("AUTH {} {}\n", node_id, password);
+    let auth_message = format!("AUTH {} {}\n", config.node_id, preimage_hex);
+    println!("[Auth Message]: {}", auth_message);
     send_stream.write_all(auth_message.as_bytes()).await?; //We can only send bytes in the stream
     send_stream.finish()?;
 
@@ -111,6 +104,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
             if line.contains("Success") {
                 println!("Authentication successful!");
                 authenticated = true;
+                config.current_index -= 1;
+                save_config(config_path, &config);
             } else if line.starts_with("ASSIGNED") {
                 assigned_port = line[8..].trim().parse::<u16>().ok();
                 if let Some(port) = assigned_port {
@@ -161,7 +156,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             }
             println!(
                 "Tunnel loop for node '{}' on port {} has ended.",
-                node_id, port
+                config.node_id, port
             );
         } else {
             println!("No assigned port received!");

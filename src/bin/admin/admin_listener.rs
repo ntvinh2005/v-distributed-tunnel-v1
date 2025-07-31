@@ -46,7 +46,7 @@ async fn handle_admin(stream: TcpStream, node_store: Arc<NodeStore>) {
                     out.push_str(&format!("| {:<13} | {:<60} |\n", "Node ID", node.node_id));
                     out.push_str(&format!(
                         "| {:<13} | {:<60} |\n",
-                        "Password Hash", node.password_hash
+                        "Anchor Hash", node.anchor
                     ));
                     out.push_str(&format!(
                         "| {:<13} | {:<60} |\n",
@@ -89,10 +89,10 @@ async fn handle_admin(stream: TcpStream, node_store: Arc<NodeStore>) {
 
                 for node in node_store.list_nodes() {
                     //This is to handle case when hash is too long
-                    let hash_display = if node.password_hash.len() > hash_width {
-                        format!("{}...", &node.password_hash[..(hash_width - 3)])
+                    let hash_display = if node.anchor.len() > hash_width {
+                        format!("{}...", &node.anchor[..(hash_width - 3)])
                     } else {
-                        node.password_hash.clone()
+                        node.anchor.clone()
                     };
                     let last_login_display = node
                         .last_login

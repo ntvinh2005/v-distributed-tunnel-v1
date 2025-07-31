@@ -12,6 +12,13 @@ pub struct Port {
     assign_at: Option<OffsetDateTime>, //Optional since maybe node that is not connected yet won't have a timestamp
 }
 
+pub enum StaticPortAssignResult {
+    Success(u16),
+    SeedMissing,
+    SeedHexInvalid,
+    PortInUse(u16),
+}
+
 #[derive(Clone)]
 pub struct PortPool {
     pool: Arc<DashMap<u16, Port>>, //To sum, it's a pool of ports
@@ -62,6 +69,47 @@ impl PortPool {
             Some(random_port)
         } else {
             None
+        }
+    }
+
+    fn static_port_from_seed(seed: &[u8]) -> u16 {
+        let hash = blake3::hash(seed);
+        5000 + (hash.as_bytes()[0] as u16 % 1000)
+    }
+
+    pub fn assign_static_port(
+        &self,
+        node_id: &str,
+        seed_hex_opt: Option<&str>,
+    ) -> StaticPortAssignResult {
+        use StaticPortAssignResult::*;
+        //check if seed present
+        let seed_hex = match seed_hex_opt {
+            Some(s) => s,
+            None => return SeedMissing,
+        };
+
+        //we decode hex
+        let seed_bytes = match hex::decode(seed_hex) {
+            Ok(b) => b,
+            Err(_) => return SeedHexInvalid,
+        };
+
+        let port = Self::static_port_from_seed(&seed_bytes);
+
+        //only assign if that port is available
+        if let Some(mut port_data) = self.pool.get_mut(&port) {
+            if !port_data.assigned {
+                port_data.assigned = true;
+                port_data.assign_to = Some(node_id.to_string());
+                port_data.assign_at = Some(OffsetDateTime::now_utc());
+                Success(port)
+            } else {
+                PortInUse(port)
+            }
+        } else {
+            // Port not in pool, treat as in use or invalid
+            PortInUse(port)
         }
     }
 
