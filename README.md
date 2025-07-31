@@ -1,6 +1,6 @@
 # V-Distributed Tunnel (QUIC) – Comprehensive Guide
 
-This document thoroughly guides through setting up, configuring, and testing your own Rust-based secure QUIC tunnel, including managing tunnel nodes using PostgreSQL and performing end-to-end testing using a local TCP echo server.
+This document thoroughly guides through setting up, configuring, and testing your own Rust-based secure QUIC tunnel, including managing tunnel nodes and performing end-to-end testing using a local TCP echo server.
 
 ---
 
@@ -80,7 +80,7 @@ cargo run --bin tunnel-admin
 
 Available commands:
 - `list`: List nodes
-- `add <node_id>`: Add node (requires node ID). This also generate a password randomly for you. Remember to use that password when authenticating when trying to connecting client node.
+- `add <node_id>`: Add node (requires node ID). This also generate a seed randomly for you and a config.toml file. DON'T SHARE this config file for other. You can use it to authenticate with server
 - `delete`: Remove node
 - `view <node_id>`: View node details
 - `help`: Display help
@@ -110,7 +110,6 @@ Server listens on UDP port 5000.
 cargo run --bin client
 ```
 
-Authenticate with node ID/password set earlier.
 
 ---
 
@@ -210,7 +209,6 @@ Any message typed will be echoed back through the tunnel!
 ## 8. Troubleshooting
 
 - Ensure `cert.pem` matches on both server/client.
-- Check PostgreSQL connection string correctness.
 - Confirm port availability (5000 for QUIC, 8080 for Echo).
 
 ---
