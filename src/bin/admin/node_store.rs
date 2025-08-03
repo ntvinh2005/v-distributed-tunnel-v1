@@ -68,10 +68,37 @@ impl NodeStore {
         }
     }
 
-    pub fn set_anchor(&self, node_id: &str, anchor: &str) {
+    fn rotate_seed(&self, node_id: &str) -> Option<String> {
+        if let Some(mut entry) = self.nodes.get_mut(node_id) {
+            const CHAIN_LENGTH: usize = 100;
+            let new_seed = ClientConfig::generate_seed();
+            let new_seed_str = ClientConfig::encode_seed(&new_seed);
+            let mut hash = hex::decode(&new_seed_str).unwrap();
+            for _ in 0..CHAIN_LENGTH {
+                hash = blake3::hash(&hash).as_bytes().to_vec();
+            }
+            let anchor = hex::encode(&hash);
+
+            //we update info of the value of entry in node_id key.
+            entry.seed = new_seed_str.clone();
+            entry.anchor = anchor.clone(); //initially it is h_0 = hash(seed). Updated everytime login successfully
+            entry.current_index = CHAIN_LENGTH - 1;
+            entry.created_at = OffsetDateTime::now_utc();
+            Some(new_seed_str.clone());
+        }
+        None
+    }
+
+    pub fn set_anchor(&self, node_id: &str, anchor: &str) -> Option<String> {
         if let Some(mut entry) = self.nodes.get_mut(node_id) {
             entry.anchor = anchor.to_string();
+            entry.current_index -= 1;
+            if entry.current_index == 0 {
+                return self.rotate_seed(node_id);
+            }
+            return None;
         }
+        None
     }
 
     pub fn get_seed(&self, node_id: &str) -> Option<String> {

@@ -180,7 +180,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         let node_id = parts[1].trim();
                         let preimage = parts[2].trim();
 
-                        let is_authorized =
+                        let (is_authorized, new_seed) =
                             admin::login::verify_node(&node_store, node_id, preimage);
                         if !is_authorized {
                             send_stream
@@ -190,6 +190,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
                             continue;
                         } else {
                             send_stream.write(b"Authorized: Success\n").await.unwrap();
+                            send_stream
+                                .write(format!("ROTATE {}\n", new_seed.unwrap()).as_bytes())
+                                .await
+                                .unwrap();
+
                             let node_seed_opt = node_store.get_seed(node_id);
                             let assigned_result =
                                 port_pool.assign_static_port(node_id, node_seed_opt.as_deref());

@@ -69,6 +69,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut config = load_config(config_path);
     let seed_bytes = hex::decode(&config.seed).expect("Invalid hex seed");
     let mut hash = seed_bytes.to_vec();
+
     for i in 0..config.current_index {
         hash = blake3::hash(&hash).as_bytes().to_vec();
         let computed = blake3::hash(&hash);
@@ -106,6 +107,19 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 authenticated = true;
                 config.current_index -= 1;
                 save_config(config_path, &config);
+                //We have ti check if current index reach 0 yet or not
+                //if it already 0, we rotate the seed.
+                //We only allow client that is already authenticated to rotate the seed.
+                //So when currnet index == 1 -> In that last time, we force client to rotate the seed
+                if config.current_index == 0 {
+                    if line.starts_with("ROTATE") {
+                        println!("Rotating seed");
+                        const CHAIN_LENGTH: usize = 100;
+                        config.seed = line[6..].trim().to_string();
+                        config.current_index = CHAIN_LENGTH - 1;
+                        save_config(config_path, &config);
+                    }
+                }
             } else if line.starts_with("ASSIGNED") {
                 assigned_port = line[8..].trim().parse::<u16>().ok();
                 if let Some(port) = assigned_port {

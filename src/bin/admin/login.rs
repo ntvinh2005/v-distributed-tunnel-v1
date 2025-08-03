@@ -2,7 +2,11 @@ use super::node_store::NodeStore;
 use blake3;
 
 ///new implementation verify node using reverse hash chain preimage
-pub fn verify_node(node_store: &NodeStore, node_id: &str, preimage: &str) -> bool {
+pub fn verify_node(
+    node_store: &NodeStore,
+    node_id: &str,
+    preimage: &str,
+) -> (bool, Option<String>) {
     if let Some(node) = node_store.get_node(node_id.to_string()) {
         let anchor = &node.anchor;
 
@@ -10,7 +14,7 @@ pub fn verify_node(node_store: &NodeStore, node_id: &str, preimage: &str) -> boo
             Ok(bytes) => bytes,
             Err(_) => {
                 eprintln!("Invalid hex preimage from client!");
-                return false;
+                return (false, None);
             }
         };
         let computed = blake3::hash(&preimage_bytes);
@@ -22,12 +26,13 @@ pub fn verify_node(node_store: &NodeStore, node_id: &str, preimage: &str) -> boo
 
         if authenticated {
             //we go backward: update anchor to be the received preimage
-            node_store.set_anchor(node_id, preimage);
+            let new_seed = node_store.set_anchor(node_id, preimage);
             node_store.set_last_login(node_id);
+            return (true, new_seed);
         }
 
-        authenticated
+        (false, None)
     } else {
-        false
+        (false, None)
     }
 }
