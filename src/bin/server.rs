@@ -1,14 +1,20 @@
 mod admin;
 mod forward;
 mod pool;
+mod reverse_proxy;
 
 use admin::node_store::NodeStore;
 use quinn::{Endpoint, RecvStream, SendStream, ServerConfig};
+use reverse_proxy::helper::{extract_host, extract_path};
+use reverse_proxy::routing_table::RoutingTable;
 use rustls_pemfile::{certs, pkcs8_private_keys, rsa_private_keys};
 use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 use std::{env, error::Error, fs::File, io::BufReader, net::SocketAddr, sync::Arc};
+use v_distributed_tunnel_v1::common::helper;
 //use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
+
+use crate::reverse_proxy::routing_table;
 
 fn load_certs(path: &str) -> Result<Vec<CertificateDer<'static>>, Box<dyn Error>> {
     let file = File::open(path)?;
@@ -47,6 +53,7 @@ pub async fn start_tcp_listener_for_port(
     forward_fn: Arc<
         dyn Fn(TcpStream, SendStream, RecvStream) -> tokio::task::JoinHandle<()> + Send + Sync,
     >,
+    routing_table: Arc<routing_table::RoutingTable>,
 ) {
     let ip = env::var("TUNNEL_IP").unwrap_or_else(|_| "0.0.0.0".to_string());
     let listener = match TcpListener::bind((ip, port)).await {
@@ -68,32 +75,65 @@ pub async fn start_tcp_listener_for_port(
             }
         };
 
+        //as usual, before feed routing these class into our as
         let registry_clone = port_registry.clone();
         let forward_fn = forward_fn.clone();
+        let routing_table = routing_table.clone();
 
         tokio::spawn(async move {
-            let node_info = match registry_clone.get(&port) {
-                Some(info) => info,
-                None => {
-                    eprintln!("No node registered for port {}, dropping connection", port);
-                    return;
-                }
-            };
+            use tokio::io::AsyncReadExt;
 
-            let (send_stream, recv_stream) = match node_info.conn.open_bi().await {
-                Ok(x) => x,
+            //firstly, we take a look at top of http data
+            let mut buf = [0; 1024];
+            //we read without removing. therefore we peek 😉
+            let n = match tcp_stream.peek(&mut buf).await {
+                Ok(n) => n,
                 Err(e) => {
-                    eprintln!(
-                        "Failed to open QUIC stream to node {}: {:?}",
-                        node_info.node_id, e
-                    );
+                    eprintln!("Failed to read from TCP stream: {}", e);
                     return;
                 }
             };
 
-            // Start bidirectional forwarding
-            forward_fn(tcp_stream, send_stream, recv_stream);
-            println!("Closed tunnel from {} on port {}", remote_addr, port);
+            let http_data = String::from_utf8_lossy(&buf[..n]);
+            let host = extract_host(&http_data);
+            let path = extract_path(&http_data);
+
+            //here, we use our routing table as a dictionary to look/map to our wanted backend
+            let backend = routing_table.lookup_with_path(
+                host.as_ref().unwrap().to_string(),
+                path.as_ref().unwrap().to_string(),
+            );
+
+            if let Some(backend_id) = backend {
+                let node_info = match registry_clone.get(&port) {
+                    Some(info) => info,
+                    None => {
+                        eprintln!("No node registered for port {}, dropping connection", port);
+                        return;
+                    }
+                };
+
+                let (send_stream, recv_stream) = match node_info.conn.open_bi().await {
+                    Ok(x) => x,
+                    Err(e) => {
+                        eprintln!(
+                            "Failed to open QUIC stream to node {}: {:?}",
+                            node_info.node_id, e
+                        );
+                        return;
+                    }
+                };
+
+                // Start bidirectional forwarding
+                forward_fn(tcp_stream, send_stream, recv_stream);
+                println!("Closed tunnel from {} on port {}", remote_addr, port);
+            } else {
+                eprintln!(
+                    "No backend found for host {:?} and path {:?}, dropping connection",
+                    host, path
+                );
+                return;
+            }
         });
     }
 }
@@ -120,6 +160,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let address: SocketAddr = addr.parse()?;
     let endpoint = Endpoint::server(server_config, address)?;
 
+    //Load routing table (for our reverse proxy)
+    let routing_table = Arc::new(routing_table::setup_routing_table());
+
     //Create node store
     let node_store = Arc::new(NodeStore::new());
 
@@ -138,8 +181,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     //Welcome some new clients.
     while let Some(connecting) = endpoint.accept().await {
         let node_store = node_store.clone();
-        let port_pool = port_pool.clone(); //Getting another reference to use in each thread share same pool.
+        //Getting another reference to use in each thread share same pool.
+        let port_pool = port_pool.clone();
         let port_registry = port_registry.clone();
+        let routing_table = routing_table.clone();
         tokio::spawn(async move {
             match connecting.await {
                 Ok(conn) => {
@@ -223,18 +268,22 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                     };
                                     port_registry.insert(port, node_info);
 
+                                    //Create a clone to feed into each async tcp listener
                                     let port_registry = port_registry.clone();
                                     let forward_fn =
                                         forward::server_tunnel_handler::make_forward_fn();
+                                    let routing_table = routing_table.clone();
                                     tokio::spawn(async move {
                                         start_tcp_listener_for_port(
                                             port,
                                             port_registry,
                                             forward_fn,
+                                            routing_table,
                                         )
                                         .await;
                                     });
-                                    // ---- MAIN SESSION LOOP ----
+
+                                    //MAIN SESSION LOOP
                                     //accept new bidirectional streams from client as long as session is alive
                                     let _guard = port_guard;
                                     loop {
