@@ -81,8 +81,6 @@ pub async fn start_tcp_listener_for_port(
         let routing_table = routing_table.clone();
 
         tokio::spawn(async move {
-            use tokio::io::AsyncReadExt;
-
             //firstly, we take a look at top of http data
             let mut buf = [0; 1024];
             //we read without removing. therefore we peek 😉
@@ -105,7 +103,10 @@ pub async fn start_tcp_listener_for_port(
             );
 
             if let Some(backend_id) = backend {
-                let node_info = match registry_clone.get(&port) {
+                let mut split = backend_id.split(':');
+                let node_id = split.next().unwrap();
+                let port: u16 = split.next().unwrap().parse().unwrap_or("8080");
+                let node_info = match registry_clone.get_by_node_id(node_id) {
                     Some(info) => info,
                     None => {
                         eprintln!("No node registered for port {}, dropping connection", port);
