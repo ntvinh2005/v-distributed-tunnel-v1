@@ -3,12 +3,13 @@ use blake3;
 use hex;
 use v_distributed_tunnel_v1::common::helper::config::{load_config, save_config};
 
-use quinn::{ClientConfig, Endpoint};
+use quinn::{ClientConfig, Endpoint, TransportConfig};
 //use rpassword::read_password;
 use clap::Parser;
 use rustls::RootCertStore;
 use rustls_pemfile::certs;
 use std::io::{self, Write};
+use std::time::Duration;
 use std::{env, error::Error, fs::File, io::BufReader, net::SocketAddr, sync::Arc};
 
 #[derive(Parser, Debug)]
@@ -44,6 +45,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
     //Use quinn helper to build a Client Config from a root store
     let roots = load_root_certs("cert.pem")?;
     //let verifier = WebPkiServerVerifier::builder(Arc::new(roots)).build()?; //Build a server cert verifier
+
+    //Here we add ping to keep the client alive
+    let mut transport_config = TransportConfig::default();
+    transport_config.max_idle_timeout(Some(Duration::from_secs(600).try_into().unwrap())); //600s = 10 min
+    transport_config.keep_alive_interval(Some(Duration::from_secs(30))); //We ping each 30s
 
     //Create a config that trust server's certificate
     let client_config = ClientConfig::with_root_certificates(Arc::new(roots))?;
@@ -149,6 +155,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 "Tunnel ready! Assigned port: {}. Waiting for incoming connections...",
                 port
             );
+            let mut warned = false;
             //Accept new bi-directional streams from the server (each represents a remote tester connection)
             //We only start forwarding things when there is a remote tester start connecting to server end of the tunnel
             //Then server send new stream, and we can start forwarding
@@ -156,6 +163,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 match quinn_conn.accept_bi().await {
                     Ok((send_stream, recv_stream)) => {
                         println!("[Tunnel] Accepted new stream from server. Starting relay.");
+                        warned = false;
                         //Each new remote tester connection gets its own tunnel handler
                         tokio::spawn(forward::client_tunnel_handler::handle_tunnel(
                             send_stream,
@@ -163,8 +171,19 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         ));
                     }
                     Err(e) => {
-                        eprintln!("[Tunnel] Failed to accept new stream: {e}");
-                        break;
+                        if e.to_string().contains("timed out") {
+                            if !warned {
+                                eprintln!(
+                                    "[Tunnel] No incoming stream (timed out). Waiting again..."
+                                );
+                                warned = true;
+                            }
+                            tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                            continue;
+                        } else {
+                            eprintln!("[Tunnel] Failed to accept new stream: {e}");
+                            break;
+                        }
                     }
                 }
             }

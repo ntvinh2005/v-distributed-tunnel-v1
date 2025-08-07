@@ -97,26 +97,26 @@ impl RoutingTable {
 }
 
 pub fn setup_routing_table() -> RoutingTable {
-    let mut routing_table = RoutingTable::new();
+    let routing_table = RoutingTable::new();
     routing_table.insert_rule(
         "api.example.com".to_string(),
         "/v1/".to_string(),
-        "127.0.0.1:8000".to_string(),
+        "laptop_1:8080".to_string(),
     );
     routing_table.insert_rule(
         "api.example.com".to_string(),
         "/admin".to_string(),
-        "127.0.0.1:8001".to_string(),
+        "laptop_1:8001".to_string(),
     );
     routing_table.insert_rule(
         "api.example.com".to_string(),
         "/".to_string(),
-        "127.0.0.1:8002".to_string(),
+        "laptop_1:8002".to_string(),
     );
     routing_table.insert_rule(
         "admin.example.com".to_string(),
         "/".to_string(),
-        "127.0.0.1:9000".to_string(),
+        "laptop_1:9000".to_string(),
     );
     routing_table
 }

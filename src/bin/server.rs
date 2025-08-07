@@ -4,11 +4,12 @@ mod pool;
 mod reverse_proxy;
 
 use admin::node_store::NodeStore;
-use quinn::{Endpoint, RecvStream, SendStream, ServerConfig};
+use quinn::{Endpoint, RecvStream, SendStream, ServerConfig, TransportConfig};
 use reverse_proxy::helper::{extract_host, extract_path};
 use reverse_proxy::routing_table::RoutingTable;
 use rustls_pemfile::{certs, pkcs8_private_keys, rsa_private_keys};
 use rustls_pki_types::{CertificateDer, PrivateKeyDer};
+use std::time::Duration;
 use std::{env, error::Error, fs::File, io::BufReader, net::SocketAddr, sync::Arc};
 use v_distributed_tunnel_v1::common::helper;
 //use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -105,7 +106,7 @@ pub async fn start_tcp_listener_for_port(
             if let Some(backend_id) = backend {
                 let mut split = backend_id.split(':');
                 let node_id = split.next().unwrap();
-                let port: u16 = split.next().unwrap().parse().unwrap_or("8080");
+                let port: u16 = split.next().unwrap().parse().unwrap_or(8080);
                 let node_info = match registry_clone.get_by_node_id(node_id) {
                     Some(info) => info,
                     None => {
@@ -147,6 +148,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let certs = load_certs("cert.pem")?;
     let key = load_key("key.pem")?;
+
+    //we add ping to keep the server alive
+    let mut transport_config = TransportConfig::default();
+    transport_config.max_idle_timeout(Some(Duration::from_secs(600).try_into().unwrap())); //600s = 10 min
+    transport_config.keep_alive_interval(Some(Duration::from_secs(30))); //We ping each 30s
 
     //The key is used intentional by server to prove to client that server is the one who control the cert
     //When a client connect, server only present its cert as part of the TLS handshake.
@@ -236,11 +242,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
                             continue;
                         } else {
                             send_stream.write(b"Authorized: Success\n").await.unwrap();
-                            send_stream
-                                .write(format!("ROTATE {}\n", new_seed.unwrap()).as_bytes())
-                                .await
-                                .unwrap();
-
+                            if new_seed.is_some() {
+                                send_stream
+                                    .write(format!("ROTATE {}\n", new_seed.unwrap()).as_bytes())
+                                    .await
+                                    .unwrap();
+                            }
                             let node_seed_opt = node_store.get_seed(node_id);
                             let assigned_result =
                                 port_pool.assign_static_port(node_id, node_seed_opt.as_deref());
