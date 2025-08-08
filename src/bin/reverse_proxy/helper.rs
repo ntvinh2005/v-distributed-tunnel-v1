@@ -13,7 +13,7 @@
 pub fn extract_host(http_data: &str) -> Option<String> {
     for line in http_data.lines() {
         //The line we looking for is in form of "Host: <hostname>"
-        if line.to_ascii_lowercase().starts_with("Host: ") {
+        if line.to_ascii_lowercase().starts_with("host: ") {
             return Some(line[6..].to_string());
         }
     }

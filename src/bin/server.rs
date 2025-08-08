@@ -97,6 +97,8 @@ pub async fn start_tcp_listener_for_port(
             let host = extract_host(&http_data);
             let path = extract_path(&http_data);
 
+            println!("Host: {:?}, Path: {:?}", host, path);
+
             //here, we use our routing table as a dictionary to look/map to our wanted backend
             let backend = routing_table.lookup_with_path(
                 host.as_ref().unwrap().to_string(),
